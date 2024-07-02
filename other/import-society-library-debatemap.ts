@@ -33,7 +33,9 @@ const userId = await db.transaction().execute(async trx => {
 
 console.log('Got debate map for question', topLevelQuestion)
 
-await importQuestion(topLevelQuestion)
+const postId = await importQuestion(topLevelQuestion)
+
+console.log('Imported debate map. Root post-id = ', postId)
 
 // type Node = Question | Category | Claim
 
@@ -70,7 +72,7 @@ function removePrefix(wording: string, prefix: string) {
 	return wording
 }
 
-async function importQuestion(question: Question) {
+async function importQuestion(question: Question): Promise<number> {
 	let wording = removePrefix(question.question, '[question] ')
 
 	const postId = await db.transaction().execute(async trx => {
@@ -84,6 +86,8 @@ async function importQuestion(question: Question) {
 	for (const position of question.positions) {
 		await importPosition(postId, position)
 	}
+
+	return postId
 }
 
 async function importPosition(parentId: number, position: Position) {
