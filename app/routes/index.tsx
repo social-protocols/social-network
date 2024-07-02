@@ -41,21 +41,23 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		commentTreeState: CommentTreeState
 	} = await db.transaction().execute(async trx => {
 		await updateHN(trx, discussionOfTheDayPostId)
+		const commentTreeState = await getCommentTreeState(
+			trx,
+			discussionOfTheDayPostId,
+			userId,
+		)
 		return {
 			mutableReplyTree: await getReplyTree(
 				trx,
 				discussionOfTheDayPostId,
 				userId,
+				commentTreeState,
 			),
 			transitiveParents: await getTransitiveParents(
 				trx,
 				discussionOfTheDayPostId,
 			),
-			commentTreeState: await getCommentTreeState(
-				trx,
-				discussionOfTheDayPostId,
-				userId,
-			),
+			commentTreeState,
 		}
 	})
 

@@ -2,10 +2,9 @@ import { sql, type Transaction } from 'kysely'
 import { vote } from '#app/repositories/vote.ts'
 import {
 	Direction,
-	type PostWithOSize,
 	type StatsPost,
 	type Post,
-	type PostWithOSizeAndScore,
+	type PostWithScore,
 } from '#app/types/api-types.ts'
 import { type DBPost } from '#app/types/db-types.ts'
 import { invariant } from '#app/utils/misc.tsx'
@@ -81,31 +80,11 @@ export async function getPost(
 		.executeTakeFirstOrThrow()
 }
 
-export async function getPostWithOSize(
+export async function getPostWithScore(
 	trx: Transaction<DB>,
 	postId: number,
-): Promise<PostWithOSize> {
-	let query = trx
-		.selectFrom('Post')
-		.innerJoin('FullScore', 'FullScore.postId', 'Post.id')
-		.selectAll('Post')
-		.select('oSize')
-		.where('Post.id', '=', postId)
-
-	const scoredPost = await query.executeTakeFirstOrThrow()
-
-	if (scoredPost === undefined) {
-		throw new Error(`Failed to read scored post postId=${postId}`)
-	}
-
-	return scoredPost
-}
-
-export async function getPostWithOSizeAndScore(
-	trx: Transaction<DB>,
-	postId: number,
-): Promise<PostWithOSizeAndScore> {
-	const scoredPost: PostWithOSizeAndScore = await trx
+): Promise<PostWithScore> {
+	const scoredPost: PostWithScore = await trx
 		.selectFrom('Post')
 		.innerJoin('FullScore', 'FullScore.postId', 'Post.id')
 		.where('Post.id', '=', postId)

@@ -1,11 +1,12 @@
 import type * as Immutable from 'immutable'
 import moment from 'moment'
 import { useRef, type Dispatch, type SetStateAction } from 'react'
-import { type PostWithOSize } from '#app/types/api-types.ts'
+import { type PostState, type Post } from '#app/types/api-types.ts'
 import { Icon } from './icon.tsx'
 
 export function PostInfoBar({
 	post,
+	postState,
 	pathFromFocussedPost,
 	isConvincing,
 	voteHereIndicator,
@@ -13,7 +14,8 @@ export function PostInfoBar({
 	setIsCollapsedState,
 	onCollapseParentSiblings,
 }: {
-	post: PostWithOSize
+	post: Post
+	postState: PostState
 	pathFromFocussedPost: Immutable.List<number>
 	isConvincing: boolean
 	voteHereIndicator: boolean
@@ -51,7 +53,7 @@ export function PostInfoBar({
 				)}
 				<span className="opacity-50">{ageString}</span>
 				<span className="opacity-50">-</span>
-				<span className="opacity-50">{post.oSize} votes</span>
+				<span className="opacity-50">{postState.voteCount} votes</span>
 				{voteHereIndicator && (
 					<span
 						title="Take a position here to give your vote above more weight"

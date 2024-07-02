@@ -34,15 +34,16 @@ export const action = async (args: ActionFunctionArgs) => {
 			isPrivate: Boolean(isPrivate),
 			withUpvote: true,
 		})
-		return focussedPostId
-			? {
-					commentTreeState: await getCommentTreeState(
-						trx,
-						focussedPostId,
-						userId,
-					),
-					newReplyTree: await getReplyTree(trx, postId, userId),
-				}
-			: {}
+		if (focussedPostId) {
+			const commentTreeState = await getCommentTreeState(
+				trx,
+				focussedPostId,
+				userId,
+			)
+			return {
+				commentTreeState,
+				newReplyTree: await getReplyTree(trx, postId, userId, commentTreeState),
+			}
+		} else return {}
 	})
 }

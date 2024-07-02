@@ -10,9 +10,7 @@ export type Post = {
 	isPrivate: number
 }
 
-export type PostWithOSize = Post & { oSize: number }
-
-export type PostWithOSizeAndScore = Post & { oSize: number; score: number }
+export type PostWithScore = Post & { score: number }
 
 export type FrontPagePost = Post & {
 	oSize: number
@@ -33,25 +31,28 @@ export type Effect = {
 }
 
 export type ReplyTree = {
-	post: PostWithOSizeAndScore
-	effect: Effect | null // TODO: move to CommentTreeState
+	post: PostWithScore
 	replies: ReplyTree[]
 }
 
 export type ImmutableReplyTree = {
-	post: PostWithOSizeAndScore
-	effect: Effect | null // TODO: move to CommentTreeState
+	post: Post
 	replies: Immutable.List<ImmutableReplyTree>
 }
 
+export type PostState = {
+	voteState: VoteState
+	voteCount: number
+	p: number | null
+	effectOnTargetPost: Effect | null
+	isDeleted: boolean
+}
+
 export type CommentTreeState = {
+	targetPostId: number
 	criticalCommentId: number | null
 	posts: {
-		[key: number]: {
-			p: number | null
-			voteState: VoteState
-			isDeleted: boolean
-		}
+		[key: number]: PostState
 	}
 }
 

@@ -2,13 +2,13 @@ import { useNavigate } from '@remix-run/react'
 import type * as Immutable from 'immutable'
 import { type Map } from 'immutable'
 import { type Dispatch, type SetStateAction } from 'react'
-import { defaultVoteState } from '#app/repositories/vote.ts'
 import {
 	Direction,
 	type ImmutableReplyTree,
 	type CommentTreeState,
-	type PostWithOSize,
+	type Post,
 } from '#app/types/api-types.ts'
+import { invariant } from '#app/utils/misc.tsx'
 import { PostActionBar } from './post-action-bar.tsx'
 import { PostContent } from './post-content.tsx'
 import { PostInfoBar } from './post-info-bar.tsx'
@@ -34,7 +34,7 @@ export function PostDetails({
 	onReplySubmit,
 	onCollapseParentSiblings,
 }: {
-	post: PostWithOSize
+	post: Post
 	teaser: boolean
 	loggedIn: boolean
 	voteHereIndicator?: boolean
@@ -50,10 +50,15 @@ export function PostDetails({
 		pathFromFocussedPost: Immutable.List<number>,
 	) => void
 }) {
-	voteHereIndicator = voteHereIndicator || false
+	voteHereIndicator = voteHereIndicator ?? false
 
-	const currentVoteState =
-		commentTreeState.posts[post.id]?.voteState || defaultVoteState(post.id)
+	const postState = commentTreeState.posts[post.id]
+	invariant(
+		postState !== undefined,
+		`post ${post.id} not found in commentTreeState`,
+	)
+
+	const currentVoteState = postState.voteState
 	const needsVoteOnCriticalComment: boolean =
 		currentVoteState.vote !== Direction.Neutral && !currentVoteState.isInformed
 
@@ -63,11 +68,7 @@ export function PostDetails({
 
 	const marginLeft = loggedIn ? 'ml-[40px]' : 'ml-2'
 
-	const commentTreeStatePostEntry = commentTreeState.posts[post.id]
-	const isDeleted =
-		commentTreeStatePostEntry === undefined
-			? true
-			: commentTreeStatePostEntry.isDeleted
+	const isDeleted = postState.isDeleted
 
 	return (
 		<div className={'flex w-full ' + (className ? className : '')}>
@@ -75,6 +76,7 @@ export function PostDetails({
 				<div className={'flex ' + marginLeft}>
 					<PostInfoBar
 						post={post}
+						postState={postState}
 						pathFromFocussedPost={pathFromFocussedPost}
 						isConvincing={false}
 						voteHereIndicator={voteHereIndicator}
@@ -102,6 +104,7 @@ export function PostDetails({
 					>
 						<PostInfoBar
 							post={post}
+							postState={postState}
 							pathFromFocussedPost={pathFromFocussedPost}
 							isConvincing={false}
 							voteHereIndicator={voteHereIndicator}

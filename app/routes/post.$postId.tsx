@@ -44,10 +44,16 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		commentTreeState: CommentTreeState
 	} = await db.transaction().execute(async trx => {
 		await updateHN(trx, postId)
+		const commentTreeState = await getCommentTreeState(trx, postId, userId)
 		return {
-			mutableReplyTree: await getReplyTree(trx, postId, userId),
+			mutableReplyTree: await getReplyTree(
+				trx,
+				postId,
+				userId,
+				commentTreeState,
+			),
 			transitiveParents: await getTransitiveParents(trx, postId),
-			commentTreeState: await getCommentTreeState(trx, postId, userId),
+			commentTreeState,
 		}
 	})
 

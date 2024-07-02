@@ -2,12 +2,14 @@ import * as Immutable from 'immutable'
 import { type Transaction, sql } from 'kysely'
 import { MAX_POSTS_PER_PAGE } from '#app/constants.ts'
 import {
+	type Effect,
 	type VoteState,
 	type ReplyTree,
 	type ImmutableReplyTree,
 	type CommentTreeState,
 	type FrontPagePost,
 } from '#app/types/api-types.ts'
+import { invariant } from '#app/utils/misc.tsx'
 import { type DBEffect } from '../types/db-types.ts'
 import { type DB } from '../types/kysely-types.ts'
 import { relativeEntropy } from '../utils/entropy.ts'
@@ -16,7 +18,7 @@ import {
 	getDescendants,
 	getPost,
 	getReplyIds,
-	getPostWithOSizeAndScore,
+	getPostWithScore,
 } from './post.ts'
 import { defaultVoteState, getUserVotes } from './vote.ts'
 
@@ -58,6 +60,7 @@ export async function getCommentTreeState(
 		.select([
 			'Post.id as postId',
 			'FullScore.p as p',
+			'FullScore.oSize as voteCount',
 			'Post.deletedAt as deletedAt',
 		])
 		.where('Post.id', 'in', descendantIds.concat([targetPostId]))
@@ -76,21 +79,31 @@ export async function getCommentTreeState(
 		? await getUserVotes(trx, userId, descendantIds.concat([targetPostId]))
 		: undefined
 
-	let commentTreeState: CommentTreeState = { criticalCommentId, posts: {} }
-	results.forEach(result => {
-		commentTreeState.posts[result.postId] = {
-			// We have to use the non-null assertion here because kysely doesn't
-			// return values as non-null type even if we filter nulls with a where
-			// condition. We can, however, be sure that the values are never null.
-			// See: https://kysely.dev/docs/examples/SELECT/not-null
-			// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-			p: result.p!,
-			voteState:
-				userVotes?.find(voteState => voteState.postId == result.postId) ||
-				defaultVoteState(result.postId),
-			isDeleted: result.deletedAt != null,
-		}
-	})
+	let commentTreeState: CommentTreeState = {
+		targetPostId,
+		criticalCommentId,
+		posts: {},
+	}
+	await Promise.all(
+		results.map(async result => {
+			commentTreeState.posts[result.postId] = {
+				// We have to use the non-null assertion here because kysely doesn't
+				// return values as non-null type even if we filter nulls with a where
+				// condition. We can, however, be sure that the values are never null.
+				// See: https://kysely.dev/docs/examples/SELECT/not-null
+				// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+				p: result.p!,
+				// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+				voteCount: result.voteCount!,
+				voteState:
+					userVotes?.find(voteState => voteState.postId == result.postId) ||
+					defaultVoteState(result.postId),
+				effectOnTargetPost:
+					(await getEffect(trx, targetPostId, result.postId)) ?? null,
+				isDeleted: result.deletedAt != null,
+			}
+		}),
+	)
 
 	return commentTreeState
 }
@@ -111,47 +124,72 @@ export async function getReplyTree(
 	trx: Transaction<DB>,
 	postId: number,
 	userId: string | null,
+	commentTreeState: CommentTreeState,
 ): Promise<ReplyTree> {
 	const directReplyIds = await getReplyIds(trx, postId)
-
-	const post = await getPostWithOSizeAndScore(trx, postId)
-
-	const effect: DBEffect | undefined =
-		post.parentId == null
-			? undefined
-			: await getEffect(trx, post.parentId, postId)
+	const post = await getPostWithScore(trx, postId)
 
 	const replies: ReplyTree[] = await Promise.all(
+		// Recursively get all subtrees.
 		// Stopping criterion: Once we reach a leaf node, its replies will be an
 		// empty array, so the Promise.all will resolve immediately.
 		directReplyIds.map(
-			async replyId => await getReplyTree(trx, replyId, userId),
+			async replyId =>
+				await getReplyTree(trx, replyId, userId, commentTreeState),
 		),
-	).then(replyTrees => {
-		return replyTrees.sort((a, b) => {
-			const targetPA = a.effect ? a.effect.p : 0
-			const targetQA = a.effect ? a.effect.q : 0
-			const targetPSizeA = a.effect ? a.effect.pSize : 0
+	)
 
-			const targetPB = b.effect ? b.effect.p : 0
-			const targetQB = b.effect ? b.effect.q : 0
-			const targetPSizeB = b.effect ? b.effect.pSize : 0
-
-			const scoreA = a.post ? a.post.score : 0
-			const scoreB = b.post ? b.post.score : 0
-
-			return (
-				relativeEntropy(targetPB, targetQB) * targetPSizeB -
-					relativeEntropy(targetPA, targetQA) * targetPSizeA || scoreB - scoreA
+	// Sort replies by EffectSize on targetPost
+	// (in-place sort)
+	replies.sort((a, b) => {
+		const effectA = commentTreeState.posts[a.post.id]?.effectOnTargetPost
+		const effectB = commentTreeState.posts[a.post.id]?.effectOnTargetPost
+		invariant(
+			effectA !== undefined,
+			`post ${a.post.id} not found in commentTreeState`,
+		)
+		invariant(
+			effectB !== undefined,
+			`post ${b.post.id} not found in commentTreeState`,
+		)
+		if (effectA != null) {
+			invariant(
+				effectA.commentId == a.post.id,
+				`Wrong effect source ${effectA.commentId}. Should be ${a.post.id}`,
 			)
-		})
+			invariant(
+				effectA.postId == commentTreeState.targetPostId,
+				`Found effect on ${effectA.postId}. Required effect on ${commentTreeState.targetPostId}`,
+			)
+		}
+		if (effectB != null) {
+			invariant(
+				effectB.commentId == b.post.id,
+				`Wrong effect source ${effectB.commentId}. Should be ${b.post.id}`,
+			)
+			invariant(
+				effectB.postId == commentTreeState.targetPostId,
+				`Found effect on ${effectB.postId}. Required effect on ${commentTreeState.targetPostId}`,
+			)
+		}
+		const effectSizeA = effectSizeOnTarget(effectA)
+		const effectSizeB = effectSizeOnTarget(effectB)
+
+		const tieBreaker = b.post.score - a.post.score
+		return effectSizeB - effectSizeA || tieBreaker
 	})
 
 	return {
 		post: post,
-		effect: effect ? effect : null,
 		replies: replies,
 	}
+}
+
+function effectSizeOnTarget(effectOnTarget: Effect | null): number {
+	const targetP = effectOnTarget?.p ?? 0
+	const targetQ = effectOnTarget?.q ?? 0
+	const targetPSize = effectOnTarget?.pSize ?? 0
+	return relativeEntropy(targetP, targetQ) * targetPSize
 }
 
 export async function getEffect(
